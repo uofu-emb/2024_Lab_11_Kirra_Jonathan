@@ -34,6 +34,9 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             gap_local_bd_addr(local_addr);
             printf("BTstack up and running on %s.\n", bd_addr_to_str(local_addr));
             break;
+        case BTSTACK_EVENT_NR_CONNECTIONS_CHANGED:
+            printf("Number of connections changed to %u.\n", btstack_event_nr_connections_changed_get_number_connections(packet));
+            break;
         default:
             break;
     }
