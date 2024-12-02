@@ -52,9 +52,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <FreeRTOS.h>
+#include <task.h>
+#include <semphr.h>
+
 #include "gatt_counter.h"
 #include "btstack.h"
 #include "ble/gatt-service/battery_service_server.h"
+
+#include "temp_sense.h"
 
 #define HEARTBEAT_PERIOD_MS 1000
 
@@ -76,6 +82,9 @@ static btstack_timer_source_t heartbeat;
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static hci_con_handle_t con_handle;
 static uint8_t battery = 100;
+
+static uint16_t temp;
+static SemaphoreHandle_t temp_sem;
 
 static void packet_handler (uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
 static uint16_t att_read_callback(hci_con_handle_t con_handle, uint16_t att_handle, uint16_t offset, uint8_t * buffer, uint16_t buffer_size);
@@ -221,6 +230,17 @@ static uint16_t att_read_callback(hci_con_handle_t connection_handle, uint16_t a
     if (att_handle == ATT_CHARACTERISTIC_0000FF11_0000_1000_8000_00805F9B34FB_01_VALUE_HANDLE){
         return att_read_callback_handle_blob((const uint8_t *)counter_string, counter_string_len, offset, buffer, buffer_size);
     }
+    else if (att_handle == ATT_CHARACTERISTIC_ORG_BLUETOOTH_CHARACTERISTIC_TEMPERATURE_CELSIUS_01_VALUE_HANDLE){
+        uint16_t temp_temp = 0;
+        if (xSemaphoreTake(temp_sem, 10) == pdTRUE) {
+            temp_temp = temp;
+            xSemaphoreGive(temp_sem);
+        }
+        else {
+            printf("Failed to get semaphore to report temperature\n");
+        }
+        return att_read_callback_handle_little_endian_16(temp_temp, offset, buffer, buffer_size);
+    }
     return 0;
 }
 /* LISTING_END */
@@ -255,6 +275,19 @@ static int att_write_callback(hci_con_handle_t connection_handle, uint16_t att_h
 }
 /* LISTING_END */
 
+static void temp_task(__unused void *args) {
+    while (true) {
+        if (xSemaphoreTake(temp_sem, 10) == pdTRUE) {
+            temp = (uint16_t)(temperature_poll()*100);
+            xSemaphoreGive(temp_sem);
+        }
+        else {
+            printf("Failed to get semaphore to measure temperature\n");
+        }
+        vTaskDelay(100);
+    }
+}
+
 int btstack_main(void);
 int btstack_main(void)
 {
@@ -262,6 +295,9 @@ int btstack_main(void)
 
     // turn on!
 	hci_power_control(HCI_POWER_ON);
+
+    temp_sem = xSemaphoreCreateMutex();
+    xTaskCreate(temp_task, "temp_thread", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 3U, NULL);
 
     return 0;
 }
