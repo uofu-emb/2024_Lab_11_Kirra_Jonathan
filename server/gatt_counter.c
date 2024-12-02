@@ -276,6 +276,7 @@ static int att_write_callback(hci_con_handle_t connection_handle, uint16_t att_h
 /* LISTING_END */
 
 static void temp_task(__unused void *args) {
+    temperature_setup();
     while (true) {
         if (xSemaphoreTake(temp_sem, 10) == pdTRUE) {
             temp = (uint16_t)(temperature_poll()*100);
